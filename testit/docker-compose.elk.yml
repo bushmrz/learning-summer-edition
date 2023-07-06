@@ -1,0 +1,90 @@
+version: '3.5'
+
+x-logging:
+  &default-logging
+  driver: "json-file"
+  options:
+    max-size: "500m"
+    max-file: "2"
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.7.0
+    logging: *default-logging
+    environment:
+      ES_JAVA_OPTS: "-Xms1024m -Xmx1024m"
+      bootstrap.memory_lock: "true"
+      cluster.name: "elasticsearch"
+      discovery.type: "single-node"
+      network.host: "0.0.0.0"
+      http.port: "9200"
+      xpack.security.enabled: "${ELASTICSEARCH_SECURITY_ENABLED:-false}"
+      xpack.security.http.ssl.enabled: "${ELASTICSEARCH_SSL_ENABLED:-false}"
+      #xpack.security.http.ssl.certificate_authorities: "${ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES:-/usr/share/elasticsearch/config/certificates/ca/ca.crt}"
+      #xpack.security.http.ssl.key: /usr/share/elasticsearch/config/certificates/elasticsearch/elasticsearch.key
+      #xpack.security.http.ssl.certificate: /usr/share/elasticsearch/config/certificates/elasticsearch/elasticsearch.crt
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elastic-volume:/usr/share/elasticsearch/data
+      - elk-tls-volume:/usr/share/elasticsearch/config/certificates
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+
+  logstash:
+    image: "${TMS_DOCKER_REGISTRY}/logstash:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      LS_JAVA_OPTS: "-Xmx512m -Xms512m"
+      EVENT_LOG_MAX_AGE: ${EVENT_LOG_MAX_AGE:-30d}
+      ELASTICSEARCH_CONNECTION_STRING: "${ELASTICSEARCH_CONNECTION_STRING:-http://elasticsearch:9200}"
+      ELASTICSEARCH_SSL_ENABLED: "${ELASTICSEARCH_SSL_ENABLED:-false}"
+      ELASTICSEARCH_USERNAME: "${LOGSTASH_ELASTICSEARCH_USERNAME:-}"
+      ELASTICSEARCH_PASSWORD: "${LOGSTASH_ELASTICSEARCH_PASSWORD:-}"
+      ELASTICSEARCH_INDEX: "${ELASTICSEARCH_INDEX:-testit}"
+      ELASTICSEARCH_LOGS_INDEX: "${ELASTICSEARCH_LOGS_INDEX:-action_logs}"
+      #ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: "${ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES:-/usr/share/elasticsearch/config/certificates/ca/ca.crt}"
+      #SERVER_SSL_KEY: /usr/share/elasticsearch/config/certificates/logstash/logstash.key
+      #SERVER_SSL_CERTIFICATE: /usr/share/elasticsearch/config/certificates/logstash/logstash.crt
+    volumes:
+      - elk-tls-volume:/usr/share/elasticsearch/config/certificates:ro
+      - ./config_files/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    networks:
+      yoonion_network:
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  kibana:
+    image: "${TMS_DOCKER_REGISTRY}/kibana:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      SERVER_NAME: "${KIBANA_SERVER_NAME:-localhost}"
+      SERVER_HOST: "${KIBANA_SERVER_HOST:-0.0.0.0}"
+      ELASTICSEARCH_URL: "${ELASTICSEARCH_CONNECTION_STRING:-http://elasticsearch:9200}"
+      ELASTICSEARCH_HOSTS: "${ELASTICSEARCH_CONNECTION_STRING:-http://elasticsearch:9200}"
+      ELASTICSEARCH_USERNAME: "${KIBANA_ELASTICSEARCH_USERNAME:-}"
+      ELASTICSEARCH_PASSWORD: "${KIBANA_ELASTICSEARCH_PASSWORD:-}"
+      SERVER_SSL_ENABLED: "${ELASTICSEARCH_SSL_ENABLED:-false}"
+      #ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: "${ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES:-/usr/share/elasticsearch/config/certificates/ca/ca.crt}"
+      #SERVER_SSL_KEY: /usr/share/elasticsearch/config/certificates/kibana/kibana.key
+      #SERVER_SSL_CERTIFICATE: /usr/share/elasticsearch/config/certificates/kibana/kibana.crt
+    volumes:
+      - elk-tls-volume:/usr/share/elasticsearch/config/certificates
+    networks:
+      yoonion_network:
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+networks:
+  yoonion_network:
+    name: "${COMPOSE_NETWORK_NAME}"
+    external: true
+
+volumes:
+  elastic-volume:
+  elk-tls-volume:

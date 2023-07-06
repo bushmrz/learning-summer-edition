@@ -1,0 +1,61 @@
+version: "3.5"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "500m"
+    max-file: "2"
+
+x-networks: &default-networks
+  - yoonion_network
+
+networks:
+  yoonion_network:
+    name: "${COMPOSE_NETWORK_NAME}"
+    external: true
+
+x-service: &default-service-settings
+  logging: *default-logging
+  networks: *default-networks
+  restart: unless-stopped
+
+services:
+  new-minio:
+    <<: *default-service-settings
+    image: minio/minio:RELEASE.2023-04-20T17-56-55Z
+    volumes:
+      - new-minio-data-volume:/data
+    environment:
+      MINIO_ACCESS_KEY: "${AWS_ACCESS_KEY}"
+      MINIO_SECRET_KEY: "${AWS_SECRET_KEY}"
+    command: server /data
+
+  new-avatars-minio:
+    <<: *default-service-settings
+    image: minio/minio:RELEASE.2023-04-20T17-56-55Z
+    volumes:
+      - new-avatars-minio-data-volume:/data
+    environment:
+      MINIO_ACCESS_KEY: "${AVATARS_AWS_ACCESS_KEY}"
+      MINIO_SECRET_KEY: "${AVATARS_AWS_SECRET_KEY}"
+    command: server /data
+
+  mc-minio:
+    <<: *default-service-settings
+    image: minio/mc:RELEASE.2023-04-12T02-21-51Z
+    entrypoint: ./minio-migrate.sh
+    command: tail -F /dev/null
+    environment:
+      AWS_ACCESS_KEY: "${AWS_ACCESS_KEY}"
+      AWS_SECRET_KEY: "${AWS_SECRET_KEY}"
+      AVATARS_AWS_ACCESS_KEY: "${AVATARS_AWS_ACCESS_KEY}"
+      AVATARS_AWS_SECRET_KEY: "${AVATARS_AWS_SECRET_KEY}"
+    depends_on:
+      - new-minio
+      - new-avatars-minio
+    volumes:
+      - ./minio-migrate.sh:/minio-migrate.sh
+
+volumes:
+  new-minio-data-volume:
+  new-avatars-minio-data-volume:

@@ -1,0 +1,433 @@
+version: '3.5'
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "500m"
+    max-file: "2"
+services:
+  frontend:
+    image: "${TMS_DOCKER_REGISTRY}/frontend:${TMS_CONTAINER_VERSION}"
+    ports:
+      - 0.0.0.0:8000:8080/tcp
+    logging: *default-logging
+    environment:
+      SSL_CERTIFICATE: "${SSL_CERTIFICATE:-}"
+      SSL_CERTIFICATE_KEY: "${SSL_CERTIFICATE_KEY:-}"
+      REDIRECT_TO_HTTPS: "${REDIRECT_TO_HTTPS:-}"
+      PERF_MODULE_ENABLED: "${PERF_MODULE_ENABLED:-false}"
+      CWM_ENABLED: "${CWM_ENABLED:-false}"
+      CWM_S3_BUCKET_SECRET_KEY: "${CWM_S3_BUCKET_SECRET_KEY:-secretKey}"
+      WIKI_ENABLED: "${WIKI_ENABLED:-false}"
+      WIKI_S3_BUCKET_SECRET_KEY: "${WIKI_S3_BUCKET_SECRET_KEY:-}"
+    volumes:
+      - ssl-volume:/etc/nginx/ssl
+    networks:
+      yoonion_network:
+    depends_on:
+      - webapi
+      - avatars.api
+    restart: unless-stopped
+  webapi:
+    image: "${TMS_DOCKER_REGISTRY}/webapi:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      FRONTEND_URL: "${FRONTEND_URL}"
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      APPLICATION__DEVELOPERMODE: "${APPLICATION__DEVELOPERMODE:-false}"
+      AWS_ACCESS_KEY: "${AWS_ACCESS_KEY}"
+      AWS_SECRET_KEY: "${AWS_SECRET_KEY}"
+      DB_CONNECTION_STRING: "${DB_CONNECTION_STRING}"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS}"
+      RABBITMQ_DEFAULT_VHOST: "${RABBITMQ_DEFAULT_VHOST}"
+      RABBITMQ_DEFAULT_HOST: "${RABBITMQ_DEFAULT_HOST}"
+      RABBITMQ_DEFAULT_PORT: "${RABBITMQ_DEFAULT_PORT}"
+      RABBITMQ_AUTH_MODE: "${RABBITMQ_AUTH_MODE}"
+      RABBITMQ_CLIENT_CERT_PATH: "${RABBITMQ_CLIENT_CERT_PATH}"
+      RABBITMQ_CLIENT_CERT_PASSPHRASE: "${RABBITMQ_CLIENT_CERT_PASSPHRASE:-}"
+      RABBITMQ_SSL_ENABLED: "${RABBITMQ_SSL_ENABLED:-false}"
+      INSECURE_REMOTES: "${INSECURE_REMOTES:-}"
+      USE_PKCE: "${USE_PKCE}"
+      SYNC_RESULT_LINKS_EVERY_SEC: "${SYNC_RESULT_LINKS_EVERY_SEC:-120}"
+      AWS_CONNECTION_STRING: "${AWS_CONNECTION_STRING:-http://minio:9000}"
+      INFLUX_CONNECTION_STRING: "${INFLUX_CONNECTION_STRING:-http://influxdb:8086}"
+      INFLUX_AUTH_ENABLED: "${INFLUX_AUTH_ENABLED:-false}"
+      INFLUX_USERNAME: "${INFLUX_USERNAME:-}"
+      INFLUX_PASSWORD: "${INFLUX_PASSWORD:-}"
+      ELASTICSEARCH_CONNECTION_STRING: "${ELASTICSEARCH_CONNECTION_STRING:-http://elasticsearch:9200}"
+      ELASTICSEARCH_INDEX: "${ELASTICSEARCH_INDEX:-testit}"
+      ELASTICSEARCH_LOGS_INDEX: "${ELASTICSEARCH_LOGS_INDEX:-action_logs}"
+      ELASTICSEARCH_AUTH_ENABLED: "${ELASTICSEARCH_AUTH_ENABLED:-false}"
+      ELASTICSEARCH_USERNAME: "${ELASTICSEARCH_USERNAME:-elastic}"
+      ELASTICSEARCH_PASSWORD: "${ELASTICSEARCH_PASSWORD:-}"
+      LICENSING_SERVER_CONNECTION_STRING: "${LICENSING_SERVER_CONNECTION_STRING:-http://license-service:8080}"
+      AUTH_CACHE_CONNECTION_STRING: "${AUTH_CACHE_CONNECTION_STRING:-auth-cache}"
+      TEST_RESULT_LINK_REQUEST_LIFETIME_SEC: "${TEST_RESULT_LINK_REQUEST_LIFETIME_SEC:-600}"
+      DATABASE_TIMEOUT_SEC: "${DATABASE_TIMEOUT_SEC:-600}"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      THREAD_PER_PROCESSOR: "${THREAD_PER_PROCESSOR}"
+      SYSTEM_NAME: "${SYSTEM_NAME:-testit}"
+      TMS_FILE_BUCKET_NAME: "${TMS_FILE_BUCKET_NAME}"
+      CalculationAutoTestsStabilityPercentageOptions__DelaySeconds: "${CALCULATION_AUTOTESTS_STABILITYPERCENTAGE_DELAY_SECONDS:-600}"
+      SMTP_ENABLE: "${SMTP_ENABLE:-false}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-}"
+      SMTP_LOGIN: "${SMTP_LOGIN:-}"
+      SMTP_DOMAIN: "${SMTP_DOMAIN:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_CONNECTION: "${SMTP_CONNECTION:-}"
+      SMTP_AUTHENTICATION: "${SMTP_AUTHENTICATION:-}"
+      SMTP_SKIP_CERTIFICATE: "${SMTP_SKIP_CERTIFICATE:-false}"
+      SMTP_TLS_VERSION: "${SMTP_TLS_VERSION:-tls}"
+      SMTP_LOG_ENABLE: "${SMTP_LOG_ENABLE:-false}"
+      PERF_MODULE_ENABLED: "${PERF_MODULE_ENABLED:-false}"
+      CWM_ENABLED: "${CWM_ENABLED:-false}"
+      OIDC_AUTO_ASSIGN_TEST_IT_USER_ROLE: "${OIDC_AUTO_ASSIGN_TEST_IT_USER_ROLE:-true}"
+      Serilog__UserActionAll__WriteTo__1__Args__requestUri: "${LOGSTASH_CONNECTION_STRING:-http://logstash:5044}"
+      Hangfire__DbConnectionString: "${BACKGROUND_CONNECTION_STRING}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+    networks:
+      yoonion_network:
+    depends_on:
+      - minio
+      - db
+      - rabbitmq
+      - auth
+      - license-service
+      - influxdb
+      - auth-cache
+      - backgrounddb
+    restart: unless-stopped
+  db:
+    image: postgres:14.8-bookworm
+    shm_size: 256mb
+    command: postgres -c 'max_connections=300' -c 'shared_buffers=256MB'
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - db-volume:/var/lib/postgresql/data
+      - db-tls-volume:/var/lib/postgresql/tls
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3.9.29-alpine
+    logging: *default-logging
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS}"
+      RABBITMQ_DEFAULT_VHOST: "${RABBITMQ_DEFAULT_VHOST}"
+    volumes:
+      - rabbitmq-certificates-volume:/etc/certs/:ro
+      - rabbitmq-configuration-volume:/etc/rabbitmq/:rw
+      - rabbit-volume:/var/lib/rabbitmq
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  rabbitmqconsumer:
+    image: "${TMS_DOCKER_REGISTRY}/rabbitmqconsumer:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      FRONTEND_URL: "${FRONTEND_URL}"
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      DB_CONNECTION_STRING: "${DB_CONNECTION_STRING}"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS}"
+      RABBITMQ_DEFAULT_VHOST: "${RABBITMQ_DEFAULT_VHOST}"
+      RABBITMQ_DEFAULT_HOST: "${RABBITMQ_DEFAULT_HOST}"
+      RABBITMQ_DEFAULT_PORT: "${RABBITMQ_DEFAULT_PORT}"
+      RABBITMQ_AUTH_MODE: "${RABBITMQ_AUTH_MODE}"
+      RABBITMQ_CLIENT_CERT_PATH: "${RABBITMQ_CLIENT_CERT_PATH}"
+      RABBITMQ_CLIENT_CERT_PASSPHRASE: "${RABBITMQ_CLIENT_CERT_PASSPHRASE:-}"
+      RABBITMQ_SSL_ENABLED: "${RABBITMQ_SSL_ENABLED:-false}"
+      INSECURE_REMOTES: "${INSECURE_REMOTES:-}"
+      LICENSING_SERVER_CONNECTION_STRING: "${LICENSING_SERVER_CONNECTION_STRING:-http://license-service:8080}"
+      DATABASE_TIMEOUT_SEC: "${DATABASE_TIMEOUT_SEC:-600}"
+      JIRA_DELAY_MILLISECONDS: 100
+      PREFETCH_COUNT: 10
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      SYSTEM_NAME: "${SYSTEM_NAME:-testit}"
+      Minio__AccessKey: "${AWS_ACCESS_KEY}"
+      Minio__SecretKey: "${AWS_SECRET_KEY}"
+      Minio__Url: "${AWS_CONNECTION_STRING:-http://minio:9000}"
+      Minio__FileBucketName: "${TMS_FILE_BUCKET_NAME}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+    networks:
+      yoonion_network:
+    depends_on:
+      - auth
+      - db
+      - rabbitmq
+      - license-service
+    restart: unless-stopped
+  minio:
+    image: minio/minio:RELEASE.2023-05-04T21-44-30Z
+    logging: *default-logging
+    volumes:
+      - minio-data-volume:/data
+      - minio-export-volume:/export
+      - minio-tls-volume:/root/.minio/certs
+    environment:
+      MINIO_ACCESS_KEY: "${AWS_ACCESS_KEY}"
+      MINIO_SECRET_KEY: "${AWS_SECRET_KEY}"
+    networks:
+      yoonion_network:
+    command: server /data
+    restart: unless-stopped
+  auth:
+    image: "${TMS_DOCKER_REGISTRY}/authwebapi:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      ASPNETCORE_ACCESS_TOKEN_EXPIRATION_MINUTES: "${ASPNETCORE_ACCESS_TOKEN_EXPIRATION_MINUTES}"
+      ASPNETCORE_REFRESH_TOKEN_EXPIRATION_MINUTES: "${ASPNETCORE_REFRESH_TOKEN_EXPIRATION_MINUTES}"
+      AUTH_CONNECTION_STRING: "${AUTH_CONNECTION_STRING}"
+      AUTH_CACHE_CONNECTION_STRING: "${AUTH_CACHE_CONNECTION_STRING:-auth-cache}"
+      SYNC_LDAP_USERS_ON_LOGIN: "true"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      SYSTEM_NAME: "${SYSTEM_NAME:-testit}"
+      Serilog__AdminAll__WriteTo__1__Args__requestUri: "${LOGSTASH_CONNECTION_STRING:-http://logstash:5044}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+    networks:
+      yoonion_network:
+    depends_on:
+      - authdb
+      - ldapwebapi
+      - auth-cache
+    restart: unless-stopped
+  authdb:
+    image: postgres:14.8-bookworm
+    command: postgres -c 'max_connections=150' -c 'shared_buffers=256MB'
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: "${POSTGRES_AUTH_DB}"
+      POSTGRES_USER: "${POSTGRES_AUTH_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_AUTH_PASSWORD}"
+    volumes:
+      - authdb-volume:/var/lib/postgresql/data
+      - authdb-tls-volume:/var/lib/postgresql/tls
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  ldapwebapi:
+    image: "${TMS_DOCKER_REGISTRY}/ldapwebapi:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+  auth-cache:
+    image: redis:6.2.12-bullseye
+    logging: *default-logging
+    command: redis-server --appendonly yes
+    volumes:
+      - auth-cache-volume:/data
+      - auth-cache-tls-volume:/tls
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  license-service:
+    image: "${TMS_DOCKER_REGISTRY}/licenseservicewebapi:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      STORAGE_PATH: "/var/licensing/" ## Remove in future releases
+      VERIFICATION_PATH: "/var/verification/" ## Remove in future releases
+      LICENSE_DB_CONNECTION_STRING: "${LICENSE_DB_CONNECTION_STRING}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    depends_on:
+      - licensedb
+    volumes:
+      - license-volume:/var/licensing ## Remove in future releases
+      - verification-volume:/var/verification ## Remove in future releases
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  licensedb:
+    image: postgres:14.8-bookworm
+    command: postgres -c 'max_connections=300' -c 'shared_buffers=256MB'
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: "${POSTGRES_LICENSE_DB}"
+      POSTGRES_USER: "${POSTGRES_LICENSE_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_LICENSE_PASSWORD}"
+    volumes:
+      - licensedb-volume:/var/lib/postgresql/data
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  avatars.api:
+    image: "${TMS_DOCKER_REGISTRY}/avatars-api:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      AVATARS_AWS_ACCESS_KEY: "${AVATARS_AWS_ACCESS_KEY}"
+      AVATARS_AWS_SECRET_KEY: "${AVATARS_AWS_SECRET_KEY}"
+      AWSS3Server__FileBucketName: "${AVATARS_FILE_BUCKET_NAME:-avatars}"
+      AVATARS_CONNECTION_STRING: "${AVATARS_CONNECTION_STRING}"
+      AVATARS_AWS_CONNECTION_STRING: "${AVATARS_AWS_CONNECTION_STRING:-http://avatars-minio:9000}"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      WEBAPI_URL: "${WEBAPI_URL:-http://webapi:8080}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    depends_on:
+      - avatars.minio
+      - avatars.db
+      - webapi
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+    networks:
+      yoonion_network:
+        aliases:
+          - avatars-api
+    restart: unless-stopped
+  avatars.minio:
+    image: minio/minio:RELEASE.2023-05-04T21-44-30Z
+    logging: *default-logging
+    volumes:
+      - avatars-minio-data-volume:/data
+      - avatars-minio-export-volume:/export
+      - avatars-minio-tls-volume:/root/.minio/certs
+    environment:
+      MINIO_ACCESS_KEY: "${AVATARS_AWS_ACCESS_KEY}"
+      MINIO_SECRET_KEY: "${AVATARS_AWS_SECRET_KEY}"
+    networks:
+      yoonion_network:
+        aliases:
+          - avatars-minio
+    command: server /data
+    restart: unless-stopped
+  avatars.db:
+    image: postgres:14.8-bookworm
+    command: postgres -c 'max_connections=300'
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: "${POSTGRES_AVATARS_DB}"
+      POSTGRES_USER: "${POSTGRES_AVATARS_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_AVATARS_PASSWORD}"
+    volumes:
+      - avatars.db-volume:/var/lib/postgresql/data
+      - avatars.db-tls-volume:/var/lib/postgresql/tls
+    networks:
+      yoonion_network:
+        aliases:
+          - avatars-db
+    restart: unless-stopped
+  influxdb:
+    image: influxdb:1.8.10
+    logging: *default-logging
+    environment:
+      INFLUXDB_DATA_ENGINE: tsm1
+      INFLUXDB_REPORTING_DISABLED: "true"
+      INFLUXDB_DATA_MAX_VALUES_PER_TAG: 0
+      INFLUXDB_DATA_MAX_SERIES_PER_DATABASE: 0
+      INFLUXDB_HTTP_AUTH_ENABLED: "${INFLUX_AUTH_ENABLED:-false}"
+      INFLUXDB_ADMIN_USER: "${INFLUX_USERNAME:-}"
+      INFLUXDB_ADMIN_PASSWORD: "${INFLUX_PASSWORD:-}"
+      INFLUXDB_META_DIR: "${INFLUXDB_META_DIR:-}"
+      INFLUXDB_HTTP_HTTPS_ENABLED: "${INFLUXDB_HTTP_HTTPS_ENABLED:-false}"
+      INFLUXDB_HTTP_HTTPS_CERTIFICATE: "${INFLUXDB_HTTP_HTTPS_CERTIFICATE:-}"
+      INFLUXDB_HTTP_HTTPS_PRIVATE_KEY: "${INFLUXDB_HTTP_HTTPS_PRIVATE_KEY:-}"
+    volumes:
+      - influx-volume:/var/lib/influxdb
+      - influx-tls-volume:/var/lib/influxdb/tls
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  background-service:
+    image: "${TMS_DOCKER_REGISTRY}/background-service:${TMS_CONTAINER_VERSION}"
+    logging: *default-logging
+    environment:
+      Identity__Host: http://auth:8080
+      Hangfire__DbConnectionString: "${BACKGROUND_CONNECTION_STRING}"
+      Tms__DbConnectionString: "${DB_CONNECTION_STRING}"
+      Redis__ConnectionString: "${AUTH_CACHE_CONNECTION_STRING:-auth-cache}"
+      Minio__AccessKey: "${AWS_ACCESS_KEY}"
+      Minio__SecretKey: "${AWS_SECRET_KEY}"
+      Minio__Url: "${AWS_CONNECTION_STRING:-http://minio:9000}"
+      Minio__FileBucketName: "${TMS_FILE_BUCKET_NAME}"
+      DOTNET_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      LICENSING_SERVER_CONNECTION_STRING: "${LICENSING_SERVER_CONNECTION_STRING:-http://license-service:8080}"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS}"
+      RABBITMQ_DEFAULT_VHOST: "${RABBITMQ_DEFAULT_VHOST}"
+      RABBITMQ_DEFAULT_HOST: "${RABBITMQ_DEFAULT_HOST}"
+      RABBITMQ_DEFAULT_PORT: "${RABBITMQ_DEFAULT_PORT}"
+      RABBITMQ_AUTH_MODE: "${RABBITMQ_AUTH_MODE}"
+      RABBITMQ_CLIENT_CERT_PATH: "${RABBITMQ_CLIENT_CERT_PATH}"
+      RABBITMQ_CLIENT_CERT_PASSPHRASE: "${RABBITMQ_CLIENT_CERT_PASSPHRASE:-}"
+      RABBITMQ_SSL_ENABLED: "${RABBITMQ_SSL_ENABLED:-false}"
+      Serilog__System__MinimumLevel: "${API_LOG_LEVEL}"
+      INFLUX_CONNECTION_STRING: "${INFLUX_CONNECTION_STRING}"
+      INFLUX_AUTH_ENABLED: "${INFLUX_AUTH_ENABLED:-false}"
+      INFLUX_USERNAME: "${INFLUX_USERNAME:-}"
+      INFLUX_PASSWORD: "${INFLUX_PASSWORD:-}"
+      INFLUX_DISABLE_UPLOAD: "${INFLUX_DISABLE_UPLOAD:-false}"
+      APPLICATION__CONFIGURATION__CUSTOMFILEPATH: "${APP_CONFIG_FILEPATH:-}"
+    depends_on:
+      - webapi
+      - backgrounddb
+      - influxdb
+    volumes:
+      - trusted-certificates-volume:/usr/local/share/ca-certificates
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+  backgrounddb:
+    image: postgres:14.8-bookworm
+    command: postgres -c 'max_connections=300' -c 'shared_buffers=256MB'
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: "${POSTGRES_BACKGROUND_DB}"
+      POSTGRES_USER: "${POSTGRES_BACKGROUND_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_BACKGROUND_PASSWORD}"
+    volumes:
+      - backgrounddb-volume:/var/lib/postgresql/data
+    networks:
+      yoonion_network:
+    restart: unless-stopped
+networks:
+  yoonion_network:
+    name: "${COMPOSE_NETWORK_NAME}"
+    external: true
+volumes:
+  minio-export-volume:
+  minio-data-volume:
+  minio-tls-volume:
+  avatars-minio-export-volume:
+  avatars-minio-data-volume:
+  avatars-minio-tls-volume:
+  avatars.db-tls-volume:
+  avatars.db-volume:
+  authdb-volume:
+  authdb-tls-volume:
+  db-volume:
+  db-tls-volume:
+  backgrounddb-volume:
+  rabbit-volume:
+  license-volume: ## Remove in future releases
+  licensedb-volume:
+  verification-volume: ## Remove in future releases
+  influx-volume:
+  influx-tls-volume:
+  auth-cache-volume:
+  auth-cache-tls-volume:
+  ssl-volume:
+  trusted-certificates-volume:
+  rabbitmq-configuration-volume:
+  rabbitmq-certificates-volume:
