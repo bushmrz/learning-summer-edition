@@ -1,6 +1,8 @@
 import uuid
 from django.db import models
 
+from pydantic import BaseModel
+
 
 class NoteModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -16,3 +18,11 @@ class NoteModel(models.Model):
 
         def __str__(self) -> str:
             return self.title
+
+
+class NotePostCreateModel(BaseModel):
+    title: str
+    content: str
+    category: str
+
+

@@ -13,6 +13,6 @@ class NoteDeleteAPITestCase(APITestCase):
     def test_delete_note(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        
+
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

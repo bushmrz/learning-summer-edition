@@ -1,7 +1,8 @@
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status, generics
-from note_api.models import NoteModel
-from note_api.serializers import NoteSerializer
+from .models import NoteModel, NotePostCreateModel
+from .serializers import NoteSerializer
 import math
 from datetime import datetime
 
@@ -76,3 +77,5 @@ class NoteDetail(generics.GenericAPIView):
 
         note.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
